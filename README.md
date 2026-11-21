@@ -1,32 +1,59 @@
 # zCast
 
-Self-hosted replacement for the vTuner internet radio service used by AV receivers (Yamaha, Denon, Marantz, …).
-C# / .NET 10 port of [YCast](https://github.com/milaq/YCast) 1.1.0.
+[![Build](https://github.com/zkarolyi/zCast/actions/workflows/build.yml/badge.svg)](https://github.com/zkarolyi/zCast/actions/workflows/build.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 
-The receiver gets two menus:
-- **Radiobrowser** – genres, countries, languages and most popular stations from the [Community Radio Browser](https://www.radio-browser.info)
-- **My Stations** – your own stations from `web/stations.yml`
+Self-hosted replacement for the **vTuner** internet radio service used by many network AV receivers
+(Yamaha, Denon, Marantz, Onkyo, …). A C# / .NET 10 port of [YCast](https://github.com/milaq/YCast) 1.1.0.
+
+Many AVRs built between roughly 2011 and 2017 get their internet radio menu from vTuner, which is now a paid
+or unreliable service. zCast answers those requests on your own network, so the receiver's **Net Radio** works again.
+
+## Features
+
+- **Radiobrowser**: browse stations by genre, country, language, or the most popular ones, using the free
+  [Community Radio Browser](https://www.radio-browser.info) index
+- **My Stations**: your own categorized station list in a simple YAML file
+- **Search** from the receiver's remote
+- **Station logos**, resized and converted to JPEG for the receiver
+- Runs on Windows, Linux and **Raspberry Pi** (self-contained ARM64 build, no .NET install needed)
+- Small footprint: runs comfortably next to other services on a Raspberry Pi
 
 ## How it works
 
 ```
-Yamaha AVR ──DNS: radioyamaha.vtuner.com → Pi──▶ nginx :80 ──▶ zCast 127.0.0.1:8010 ──▶ Radio Browser / streams
+AVR ──DNS: radioyamaha.vtuner.com → your server──▶ nginx :80 ──▶ zCast ──▶ Radio Browser / streams
 ```
 
-1. The router's DNS answers `radioyamaha.vtuner.com` and `radioyamaha2.vtuner.com` with the Raspberry Pi's IP.
-2. On the Pi, nginx forwards those host names to zCast.
-3. zCast answers like the old vTuner service.
+1. Your local DNS answers the vTuner host name your receiver uses with the IP of the zCast server.
+2. A reverse proxy (nginx) on port 80 forwards those requests to zCast.
+3. zCast responds in the vTuner XML format, and the receiver plays the streams directly.
 
-## Deploy to the Raspberry Pi (64-bit)
+## Supported devices
 
-**On the PC** – build the package (self-contained, no .NET install needed on the Pi):
+zCast implements the same protocol as YCast, so it should work with the
+[AVRs that YCast supports](https://github.com/milaq/YCast#supported-devices).
+The default deployment targets **Yamaha** (`radioyamaha.vtuner.com`, `radioyamaha2.vtuner.com`).
+Other brands use different vTuner host names. See the YCast README and add them to `deploy/nginx-zcast.conf`.
+
+Tested a device? Please [open an issue](https://github.com/zkarolyi/zCast/issues/new/choose) so it can be listed here.
+
+## Installation (Raspberry Pi, 64-bit)
+
+Requirements: a 64-bit Raspberry Pi OS (`uname -m` shows `aarch64`) and nginx listening on port 80
+(if it is not installed yet: `sudo apt install nginx`).
+
+**1. Build the package on a PC** with the [.NET 10 SDK](https://dotnet.microsoft.com/download):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File deploy\publish.ps1
 scp out\zcast-linux-arm64.tar.gz <user>@<pi-ip>:~
 ```
 
-**On the Pi:**
+Or download `zcast-linux-arm64.tar.gz` from the latest [GitHub Actions build](https://github.com/zkarolyi/zCast/actions/workflows/build.yml).
+
+**2. Install it on the Pi:**
 
 ```bash
 tar xzf zcast-linux-arm64.tar.gz
@@ -34,39 +61,67 @@ cd zcast-linux-arm64
 chmod +x install.sh && ./install.sh
 ```
 
-The script installs the app to `/opt/zcast`, the `zcast` systemd service and the nginx site, then tests it.
-Updating works the same way. An existing `/opt/zcast/stations.yml` is kept.
+This installs the app to `/opt/zcast`, a `zcast` systemd service (listening on `127.0.0.1:8010`) and an nginx site
+for the vTuner host names, then tests it. Running it again updates zCast and keeps your `/opt/zcast/stations.yml`.
 
-**On the router (ZTE F668)** – *DNS Service → Hosts*: add `radioyamaha.vtuner.com` and `radioyamaha2.vtuner.com`
-pointing to the Pi's IP. Give the Pi a fixed IP (DHCP binding). Check from the PC:
+**3. Redirect DNS.** Make `radioyamaha.vtuner.com` and `radioyamaha2.vtuner.com` resolve to the Pi's IP.
+Use whichever of these your network supports:
+
+- **Router**: a local hosts / static DNS feature (for example *DNS Service → Hosts* on ZTE routers)
+- **Pi-hole / dnsmasq**: `address=/radioyamaha.vtuner.com/<pi-ip>`
+- **Synology DNS Server** or any other local DNS server
+
+If the receiver doesn't use your router for DNS, set its primary DNS manually.
+Give the server a fixed IP address. Check from a PC:
 
 ```
 nslookup radioyamaha.vtuner.com
 ```
 
-If this doesn't return the Pi's IP, set the receiver's primary DNS manually to the router's IP.
+**4.** Power-cycle the receiver and open **Net Radio**.
 
-## Operation
+## Configuration: My Stations
 
-| Task | Command (on the Pi) |
-|---|---|
-| Logs | `journalctl -u zcast -f` |
-| Restart | `sudo systemctl restart zcast` |
-| Edit own stations | `sudo nano /opt/zcast/stations.yml` (read on every request, no restart needed) |
-| Test | `curl -H "Host: radioyamaha.vtuner.com" http://127.0.0.1/ycast` |
-| Swagger (on the Pi only) | `curl http://127.0.0.1:8010/swagger/v1/swagger.json` |
-
-## stations.yml format
+Edit `/opt/zcast/stations.yml`. The file is read on every request, so no restart is needed:
 
 ```yaml
 Categories:
   Chillout:
     - Name: SomaFM Drone Zone
       Url: http://ice1.somafm.com/dronezone-256-mp3
+  News:
+    - Name: BBC World Service
+      Url: http://stream.live.vc.bbcmedia.co.uk/bbc_world_service
 ```
+
+## Operation
+
+| Task | Command (on the Pi) |
+|---|---|
+| Service logs | `journalctl -u zcast -f` |
+| Requests from the receiver | `sudo tail -f /var/log/nginx/zcast.access.log` |
+| Restart | `sudo systemctl restart zcast` |
+| Test | `curl -H "Host: radioyamaha.vtuner.com" http://127.0.0.1/ycast` |
 
 ## Development
 
+```bash
+dotnet run --project web        # http://localhost:5001/swagger
 ```
-dotnet run --project web      # http://localhost:5001/swagger
-```
+
+Useful endpoints: `/ycast` (main menu), `/ycast/radiobrowser`, `/ycast/my_stations`,
+`/ycast/search?search=jazz`, `/setupapp/Yamaha/asp/BrowseXML/loginXML.asp?token=0` (AVR login).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute and [CHANGELOG.md](CHANGELOG.md) for release notes.
+
+## Credits
+
+- [YCast](https://github.com/milaq/YCast) by Micha LaQua: the original Python implementation zCast is ported from
+- [Community Radio Browser](https://www.radio-browser.info): the free station index
+
+zCast is not affiliated with vTuner, Yamaha or any other manufacturer.
+
+## License
+
+zCast is free software, licensed under the [GNU General Public License v3.0 or later](LICENSE),
+the same license as YCast. See [NOTICE](NOTICE) for copyright and third-party information.

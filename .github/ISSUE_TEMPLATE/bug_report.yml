@@ -1,0 +1,43 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please report security problems privately instead (see SECURITY.md).
+  - type: input
+    id: receiver
+    attributes:
+      label: Receiver model
+      placeholder: e.g. Yamaha RX-V673
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Where zCast runs
+      placeholder: e.g. Raspberry Pi 4, Raspberry Pi OS 64-bit, zCast 1.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Output of `journalctl -u zcast -n 100` and `sudo tail -50 /var/log/nginx/zcast.access.log`.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: "`nslookup radioyamaha.vtuner.com` returns the IP of the zCast server"
+        - label: I power-cycled the receiver after changing DNS

@@ -1,0 +1,32 @@
+name: Device report
+description: Tell us whether zCast works with your receiver
+labels: [device report]
+body:
+  - type: input
+    id: receiver
+    attributes:
+      label: Manufacturer and model
+      placeholder: e.g. Yamaha RX-V475
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Does it work?
+      options:
+        - Works fully
+        - Works partially
+        - Doesn't work
+    validations:
+      required: true
+  - type: input
+    id: hostname
+    attributes:
+      label: vTuner host name the receiver uses
+      description: Visible in the nginx access log or your DNS server's query log.
+      placeholder: e.g. radioyamaha.vtuner.com
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: What works, what doesn't, anything special in the setup.
