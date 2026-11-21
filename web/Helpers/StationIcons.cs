@@ -1,8 +1,6 @@
 ﻿using Browser;
 using Microsoft.Extensions.Caching.Memory;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.IO;
+using SkiaSharp;
 
 namespace Helpers
 {
@@ -25,7 +23,7 @@ namespace Helpers
         public async Task<byte[]> GetIconAsync(VTuner.Station station)
         {
             var cacheKey = string.Format(CACHE_NAME, station.Uid);
-            var cachedValue = await memoryCache.GetOrCreate(cacheKey, async entry =>
+            var cachedValue = await (memoryCache.GetOrCreate(cacheKey, async entry =>
                 {
                     entry.SlidingExpiration = TimeSpan.FromHours(1);
                     logger.LogWarning($"Station icon cache miss. Fetching and converting station icon for station id '{station.Uid}'");
@@ -40,11 +38,12 @@ namespace Helpers
                             return Array.Empty<byte>();
                         }
 
-                        using var image = Image.FromStream(new MemoryStream(response));
-                        using var resizedImage = ResizeImage(image, MAX_SIZE);
-                        using var stream = new MemoryStream();
-                        resizedImage.Save(stream, System.Drawing.Imaging.ImageFormat.Jpeg);
-                        ret = stream.ToArray();
+                        // SkiaSharp is cross-platform (System.Drawing only works on Windows).
+                        ret = ConvertToJpeg(response, MAX_SIZE);
+                        if (ret.Length == 0)
+                        {
+                            logger.LogWarning($"Station icon from {station.Icon} is not a decodable image");
+                        }
                     }
                     catch (HttpRequestException ex)
                     {
@@ -58,7 +57,7 @@ namespace Helpers
                     }
 
                     return ret;
-                });
+                }) ?? Task.FromResult(Array.Empty<byte>()));
 
             // Don't keep failed fetches in the cache for an hour; retry on the next request.
             if (cachedValue == null || cachedValue.Length == 0)
@@ -70,22 +69,34 @@ namespace Helpers
             return cachedValue;
         }
 
-        private static Bitmap ResizeImage(Image image, int size)
+        /// <summary>
+        /// Scales the image so its longer side is <paramref name="maxSize"/> (keeping aspect ratio),
+        /// flattens transparency onto white (JPEG has no alpha) and encodes it as JPEG.
+        /// Returns an empty array if the data is not a decodable image.
+        /// </summary>
+        public static byte[] ConvertToJpeg(byte[] imageData, int maxSize)
         {
-            var ratio = size / (float)Math.Max(image.Width, image.Height);
-            var newWidth = (int)(image.Width * ratio);
-            var newHeight = (int)(image.Height * ratio);
-            var newImage = new Bitmap(newWidth, newHeight);
-
-            using (var graphics = Graphics.FromImage(newImage))
+            using var source = SKBitmap.Decode(imageData);
+            if (source == null || source.Width <= 0 || source.Height <= 0)
             {
-                graphics.CompositingQuality = CompositingQuality.HighQuality;
-                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                graphics.SmoothingMode = SmoothingMode.HighQuality;
-                graphics.DrawImage(image, 0, 0, newWidth, newHeight);
+                return Array.Empty<byte>();
             }
 
-            return newImage;
+            var ratio = maxSize / (float)Math.Max(source.Width, source.Height);
+            var width = Math.Max(1, (int)(source.Width * ratio));
+            var height = Math.Max(1, (int)(source.Height * ratio));
+
+            using var surface = SKSurface.Create(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+            var canvas = surface.Canvas;
+            canvas.Clear(SKColors.White);
+            using (var sourceImage = SKImage.FromBitmap(source))
+            {
+                canvas.DrawImage(sourceImage, new SKRect(0, 0, width, height), new SKSamplingOptions(SKCubicResampler.Mitchell));
+            }
+
+            using var snapshot = surface.Snapshot();
+            using var jpeg = snapshot.Encode(SKEncodedImageFormat.Jpeg, 90);
+            return jpeg?.ToArray() ?? Array.Empty<byte>();
         }
     }
 }
