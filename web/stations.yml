@@ -1,0 +1,41 @@
+Categories:
+  Electronic:
+    - Name: Deep House Lounge
+      Url: http://198.15.94.34:8006
+    - Name: Ibiza Sonica
+      Url: http://s1.sonicabroadcast.com:7005/stream
+    - Name: Bassdrive
+      Url: http://50.7.98.106:8200
+    - Name: SomaFM Fluid
+      Url: http://ice1.somafm.com/fluid-128-mp3
+
+  Chillout:
+    - Name: Joint Radio
+      Url: http://radio.jointil.net:9998
+    - Name: SomaFM DEF CON Radio
+      Url: http://ice1.somafm.com/defcon-256-mp3
+    - Name: SomaFM Drone Zone
+      Url: http://ice1.somafm.com/dronezone-256-mp3
+    - Name: SomaFM Mission Control
+      Url: http://ice1.somafm.com/missioncontrol-128-mp3
+    - Name: The Jazz Groove
+      Url: http://west-mp3-128.streamthejazzgroove.com
+    - Name: Radionomy Downbeat
+      Url: http://streaming.radionomy.com/TempoOfTheDownbeat1
+
+  Casual:
+    - Name: 76Radio
+      Url: http://192.240.102.133:9566/stream
+    - Name: SomaFM Beat Blender
+      Url: http://ice1.somafm.com/beatblender-128-mp3
+    - Name: Jazz Radio Electro Swing
+      Url: http://jazz-wr04.ice.infomaniak.ch/jazz-wr04-128.mp3
+    - Name: SomaFM Groove Salad
+      Url: http://ice1.somafm.com/groovesalad-256-mp3
+    - Name: SomaFM Lush
+      Url: http://ice1.somafm.com/lush-128-mp3
+    - Name: Allzic Radio R&B
+      Url: http://allzic10.ice.infomaniak.ch/allzic10.mp3
+    - Name: The UK 1940s Radio Station
+      Url: http://91.121.134.23:8100/1
+
