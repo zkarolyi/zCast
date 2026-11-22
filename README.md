@@ -147,8 +147,11 @@ If the AVR still shows the old list, re-open the menu or power-cycle it (menus a
 then log in with the user and password set by `install.sh`.
 
 - Categories and stations: add, edit, delete, reorder, move between categories
-- **Search** the Radio Browser index and add a station with one click (direct stream URL)
-- **Test** a stream URL (HTTP status, content type, HTTPS/playlist/web page warnings)
+- **Search** the Radio Browser index (~50,000 stations) by name, country, language, genre, codec and minimum bitrate,
+  sorted by votes, popularity, name or bitrate, 50 per page. "Only http:// streams" (default) skips HTTPS stations.
+  Add a station with one click (direct stream URL).
+- **Test** a stream URL (HTTP status, content type, playlist/web page warnings). For HTTPS URLs it also checks the
+  http:// version and offers **Use http:// URL**, and TLS errors show the reason (e.g. expired or untrusted certificate)
 - Import / export `stations.yml`; the last 10 versions are kept as backups and can be restored
 - Saving is atomic and conflict-safe (two open tabs can't overwrite each other)
 - Saving from the page rewrites the file: YAML comments are not kept (backups keep the previous version)

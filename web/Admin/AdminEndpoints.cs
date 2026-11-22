@@ -1,6 +1,6 @@
 using Browser;
+using Microsoft.Extensions.Caching.Memory;
 using My;
-using System.Net.Http.Headers;
 
 namespace Admin
 {
@@ -14,6 +14,8 @@ namespace Admin
         public const string CSRF_HEADER = "X-Zcast-Admin";
         public const string STREAM_TEST_CLIENT = "StreamTestClient";
         private const int MAX_IMPORT_BYTES = 1024 * 1024;
+        private const int SEARCH_PAGE_SIZE = 50;
+        private const string FILTERS_CACHE_KEY = "admin_search_filters";
 
         private static readonly Dictionary<string, string> StaticFiles = new(StringComparer.Ordinal)
         {
@@ -49,6 +51,7 @@ namespace Admin
             api.MapGet("/export", (StationStore store) =>
                 Results.File(store.ReadRaw(), "application/x-yaml", "stations.yml"));
             api.MapGet("/search", Search);
+            api.MapGet("/search/filters", SearchFilters);
             api.MapPost("/test-stream", TestStream);
             api.MapGet("/backups", (StationStore store) => Results.Ok(store.ListBackups()));
             api.MapPost("/backups/{id}/restore", RestoreBackup);
@@ -131,22 +134,65 @@ namespace Admin
             }
         }
 
-        private static IResult Search(string? q, RadioBrowser radioBrowser)
+        /// <summary>
+        /// Filtered Radio Browser search. At least a name (2+ characters), country, language or genre is required,
+        /// because the index has ~50,000 stations. Results are paged (offset, 50 per page).
+        /// </summary>
+        private static IResult Search(HttpRequest request, RadioBrowser radioBrowser)
         {
-            if (string.IsNullOrWhiteSpace(q) || q.Trim().Length < 2)
+            var query = request.Query;
+            string? Text(string key) => string.IsNullOrWhiteSpace(query[key]) ? null : query[key].ToString().Trim();
+            var name = Text("name") ?? Text("q");
+            var country = Text("country");
+            var language = Text("language");
+            var tag = Text("tag");
+            if (name is { Length: < 2 })
             {
-                return Results.BadRequest(new { title = "Enter at least 2 characters" });
+                return Results.BadRequest(new { title = "Enter at least 2 characters of the name" });
             }
-            var results = radioBrowser.Search(q.Trim(), 50).Select(s => new
+            if (name == null && country == null && language == null && tag == null)
+            {
+                return Results.BadRequest(new { title = "Enter a name or choose a country, language or genre" });
+            }
+            var filter = new StationSearchFilter(
+                name, country, language, tag, Text("codec"),
+                BitrateMin: int.TryParse(query["bitrateMin"], out var bitrate) ? Math.Max(0, bitrate) : 0,
+                HttpOnly: string.Equals(query["httpOnly"], "true", StringComparison.OrdinalIgnoreCase),
+                Order: Text("order"),
+                Offset: int.TryParse(query["offset"], out var offset) ? Math.Max(0, offset) : 0,
+                Limit: SEARCH_PAGE_SIZE);
+
+            var (stations, hasMore) = radioBrowser.AdvancedSearch(filter);
+            var results = stations.Select(s => new
             {
                 name = s.Name.Trim(),
                 url = string.IsNullOrEmpty(s.UrlResolved) ? s.Url : s.UrlResolved,
                 codec = s.Codec,
                 bitrate = s.Bitrate,
                 country = s.CountryCode,
+                language = s.Language,
+                votes = s.Votes,
                 tags = string.Join(", ", s.Tags.Where(t => !string.IsNullOrWhiteSpace(t)).Take(4)),
             });
-            return Results.Ok(results);
+            return Results.Ok(new { results, offset = filter.Offset, hasMore });
+        }
+
+        /// <summary>Countries, languages, genres and codecs for the search filters (cached for 6 hours).</summary>
+        private static IResult SearchFilters(RadioBrowser radioBrowser, IMemoryCache cache)
+        {
+            var filters = cache.GetOrCreate(FILTERS_CACHE_KEY, entry =>
+            {
+                var result = new SearchFilterOptions(
+                    radioBrowser.GetFilterOptions("countries"),
+                    radioBrowser.GetFilterOptions("languages"),
+                    radioBrowser.GetFilterOptions("tags"),
+                    radioBrowser.GetFilterOptions("codecs"));
+                // If Radio Browser was unreachable, retry soon instead of caching empty lists for hours.
+                var complete = result.Countries.Count > 0 && result.Languages.Count > 0 && result.Tags.Count > 0;
+                entry.AbsoluteExpirationRelativeToNow = complete ? TimeSpan.FromHours(6) : TimeSpan.FromMinutes(1);
+                return result;
+            });
+            return Results.Ok(filters);
         }
 
         private static IResult RestoreBackup(string id, StationStore store)
@@ -178,8 +224,37 @@ namespace Admin
                 return Results.Ok(new StreamTestResult(false, null, null, null, null, new() { "Not a valid http:// or https:// URL." }));
             }
 
-            var warnings = new List<string>();
             var client = httpClientFactory.CreateClient(STREAM_TEST_CLIENT);
+            var (result, connectionFailed) = await ProbeStreamAsync(client, uri, cancellationToken);
+
+            // Older AVRs can't play HTTPS (and can't fix certificate problems either): look for a working http:// version.
+            if (uri.Scheme == Uri.UriSchemeHttps && (connectionFailed || result.Ok))
+            {
+                var httpUri = ToHttp(uri);
+                var (alternative, _) = await ProbeStreamAsync(client, httpUri, cancellationToken);
+                if (alternative.Ok)
+                {
+                    var warnings = new List<string>(result.Warnings) { $"The http:// version works and is better for the receiver: {httpUri}" };
+                    result = result with { Warnings = warnings, SuggestedUrl = httpUri.ToString() };
+                }
+            }
+            return Results.Ok(result);
+        }
+
+        private static Uri ToHttp(Uri uri)
+        {
+            var builder = new UriBuilder(uri) { Scheme = Uri.UriSchemeHttp };
+            if (uri.IsDefaultPort || uri.Port == 443)
+            {
+                builder.Port = -1;
+            }
+            return builder.Uri;
+        }
+
+        /// <summary>Requests the URL and classifies the answer. connectionFailed = no HTTP answer at all (DNS, TLS, timeout…).</summary>
+        private static async Task<(StreamTestResult Result, bool ConnectionFailed)> ProbeStreamAsync(HttpClient client, Uri uri, CancellationToken cancellationToken)
+        {
+            var warnings = new List<string>();
             try
             {
                 using var message = new HttpRequestMessage(HttpMethod.Get, uri);
@@ -192,7 +267,7 @@ namespace Admin
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    return Results.Ok(new StreamTestResult(false, status, contentType, name, finalUri.ToString(), new() { $"The server answered HTTP {status}." }));
+                    return (new StreamTestResult(false, status, contentType, name, finalUri.ToString(), new() { $"The server answered HTTP {status}." }), false);
                 }
                 if (finalUri.Scheme == Uri.UriSchemeHttps)
                 {
@@ -220,20 +295,42 @@ namespace Admin
                     ok = false;
                     warnings.Add($"Unexpected content type '{contentType}'. The AVR may not be able to play it.");
                 }
-                return Results.Ok(new StreamTestResult(ok, status, contentType, name, finalUri.ToString(), warnings));
+                return (new StreamTestResult(ok, status, contentType, name, finalUri.ToString(), warnings), false);
             }
             catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                return Results.Ok(new StreamTestResult(false, null, null, null, null, new() { "No answer within the time limit." }));
+                return (new StreamTestResult(false, null, null, null, null, new() { "No answer within the time limit." }), true);
             }
             catch (HttpRequestException ex)
             {
-                // SHOUTcast v1 answers "ICY 200 OK", which is not valid HTTP for HttpClient but plays on most AVRs.
-                var hint = ex.HttpRequestError == HttpRequestError.InvalidResponse
-                    ? " This may be an old SHOUTcast (ICY) server, which most AVRs can still play."
-                    : string.Empty;
-                return Results.Ok(new StreamTestResult(false, null, null, null, null, new() { $"Connection failed: {ex.Message}{hint}" }));
+                return (new StreamTestResult(false, null, null, null, null, new() { "Connection failed: " + DescribeConnectionError(ex) }), true);
             }
+        }
+
+        /// <summary>Human-readable reason, including the inner TLS/socket error that HttpRequestException hides.</summary>
+        private static string DescribeConnectionError(HttpRequestException ex)
+        {
+            Exception inner = ex;
+            while (inner.InnerException != null)
+            {
+                inner = inner.InnerException;
+            }
+            var reason = ReferenceEquals(inner, ex) ? ex.Message : inner.Message;
+
+            if (ex.HttpRequestError == HttpRequestError.SecureConnectionError)
+            {
+                var hint = reason.Contains("UntrustedRoot") || reason.Contains("PartialChain")
+                    ? " If this happens for many HTTPS stations, the server's CA certificates may be missing or outdated"
+                      + " (Linux: sudo apt install --reinstall ca-certificates)."
+                    : string.Empty;
+                return $"HTTPS/TLS error: {reason}.{hint}";
+            }
+            if (ex.HttpRequestError == HttpRequestError.InvalidResponse)
+            {
+                // SHOUTcast v1 answers "ICY 200 OK", which is not valid HTTP for HttpClient but plays on most AVRs.
+                return $"{reason} This may be an old SHOUTcast (ICY) server, which most AVRs can still play.";
+            }
+            return reason;
         }
 
         private static string? HeaderValue(HttpResponseMessage response, string name)
@@ -322,5 +419,9 @@ namespace Admin
 
     public record StreamTestRequest(string? Url);
 
-    public record StreamTestResult(bool Ok, int? Status, string? ContentType, string? Name, string? FinalUrl, List<string> Warnings);
+    /// <param name="SuggestedUrl">A working http:// alternative for an https:// URL (older AVRs can't play HTTPS).</param>
+    public record StreamTestResult(bool Ok, int? Status, string? ContentType, string? Name, string? FinalUrl, List<string> Warnings,
+        string? SuggestedUrl = null);
+
+    public record SearchFilterOptions(List<FilterOption> Countries, List<FilterOption> Languages, List<FilterOption> Tags, List<FilterOption> Codecs);
 }

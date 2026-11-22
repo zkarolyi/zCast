@@ -51,12 +51,55 @@
   <section class="tools">
     <details class="panel" id="search-panel">
       <summary>Find stations (Radio Browser)</summary>
-      <form id="search-form" class="inline-form" autocomplete="off">
-        <input id="search-q" type="search" placeholder="Name, genre or country (min. 2 characters)" aria-label="Search">
-        <button type="submit" id="search-btn">Search</button>
+      <form id="search-form" class="search-form" autocomplete="off" novalidate>
+        <div class="filter-grid">
+          <label class="wide">Name
+            <input id="sf-name" type="search" placeholder="Station name (min. 2 characters)">
+          </label>
+          <label>Country
+            <select id="sf-country"><option value="">Any</option></select>
+          </label>
+          <label>Language
+            <select id="sf-language"><option value="">Any</option></select>
+          </label>
+          <label>Genre
+            <select id="sf-tag"><option value="">Any</option></select>
+          </label>
+          <label>Codec
+            <select id="sf-codec"><option value="">Any</option></select>
+          </label>
+          <label>Min. bitrate
+            <select id="sf-bitrate">
+              <option value="">Any</option>
+              <option value="64">64 kbps</option>
+              <option value="96">96 kbps</option>
+              <option value="128">128 kbps</option>
+              <option value="192">192 kbps</option>
+              <option value="256">256 kbps</option>
+              <option value="320">320 kbps</option>
+            </select>
+          </label>
+          <label>Sort
+            <select id="sf-order">
+              <option value="votes">Most votes</option>
+              <option value="popular">Most played</option>
+              <option value="name">Name</option>
+              <option value="bitrate">Bitrate</option>
+            </select>
+          </label>
+        </div>
+        <label class="check"><input type="checkbox" id="sf-http" checked> Only http:// streams (recommended for older receivers)</label>
+        <div class="row-buttons">
+          <button type="submit" id="search-btn" class="primary">Search</button>
+          <button type="button" id="search-reset">Reset filters</button>
+        </div>
+        <div class="small muted" id="filter-status"></div>
+        <div class="field-msg" id="search-msg"></div>
       </form>
       <p class="muted small" id="search-target"></p>
+      <p class="small" id="search-count"></p>
       <ul id="search-results" class="search-results"></ul>
+      <div class="more"><button type="button" id="search-more" hidden>Load more</button></div>
     </details>
 
     <details class="panel" id="file-panel">

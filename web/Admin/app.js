@@ -20,7 +20,6 @@
     editing: null,       // { cat, idx }
     tests: new Map(),    // url -> { pending: true } | test result
     busy: false,         // save / load / restore / import in progress
-    searchResults: [],
   };
 
   const $ = (id) => document.getElementById(id);
@@ -286,7 +285,14 @@
       button('↑', () => moveStation(i, -1), { class: 'icon', title: 'Move up', 'aria-label': 'Move up', disabled: i === 0 }),
       button('↓', () => moveStation(i, 1), { class: 'icon', title: 'Move down', 'aria-label': 'Move down', disabled: i === cat.stations.length - 1 }),
       button('✕', () => deleteStation(i), { class: 'icon danger', title: 'Delete station', 'aria-label': 'Delete station' }));
-    return el('li', null, el('div', { class: 'station' }, info, buttons), testResultNode(s.url));
+    const useUrl = (u) => {
+      const err = urlError(u);
+      if (err) { toast(err, 'error'); return; }
+      s.url = u.trim();
+      render();
+      toast(`'${s.name}' now uses ${s.url} (unsaved – click Save).`);
+    };
+    return el('li', null, el('div', { class: 'station' }, info, buttons), testResultNode(s.url, useUrl));
   }
 
   function stationEditRow(cat, s, i) {
@@ -312,7 +318,11 @@
       el('div', { class: 'row-buttons' },
         el('button', { type: 'submit', class: 'primary', text: 'Apply' }),
         button('Cancel', () => { state.editing = null; render(); }),
-        button('Test', (e) => runTestInto(url.value, result, e.currentTarget))),
+        button('Test', (e) => runTestInto(url.value, result, e.currentTarget, (u) => {
+          url.value = u;
+          check();
+          result.replaceChildren(el('span', { class: 'ok', text: 'URL replaced. ' }), 'Click Apply to keep it.');
+        }))),
       msg, result);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -333,14 +343,15 @@
     return el('li', null, form);
   }
 
-  function testResultNode(url) {
+  function testResultNode(url, onUseUrl) {
     const node = el('div', { class: 'test-result' });
     const r = state.tests.get(url);
-    if (r) fillTestResult(node, r);
+    if (r) fillTestResult(node, r, onUseUrl);
     return node;
   }
 
-  function fillTestResult(node, r) {
+  // onUseUrl(url) is called by the "Use http:// URL" button when the test suggests an http:// variant.
+  function fillTestResult(node, r, onUseUrl) {
     node.replaceChildren();
     if (r.pending) {
       node.append(el('span', { class: 'spinner' }), 'Testing stream…');
@@ -358,6 +369,11 @@
     if (parts.length) node.append(' – ' + parts.join(' · '));
     if (r.finalUrl && r.finalUrl !== r.url) node.append(el('div', { class: 'muted', text: 'Redirects to ' + r.finalUrl }));
     if (r.warnings && r.warnings.length) node.append(el('ul', null, r.warnings.map((w) => el('li', { text: w }))));
+    if (r.suggestedUrl && onUseUrl) {
+      node.append(el('div', { class: 'suggest' },
+        button('Use http:// URL', () => onUseUrl(r.suggestedUrl), { class: 'primary' }),
+        el('span', { class: 'muted', text: r.suggestedUrl })));
+    }
   }
 
   function renderSearchTarget() {
@@ -426,14 +442,14 @@
     renderStations();
   }
 
-  async function runTestInto(url, node, btn) {
+  async function runTestInto(url, node, btn, onUseUrl) {
     if (urlError(url)) { fillTestResult(node, { error: urlError(url) }); return; }
     if (btn) btn.disabled = true;
     fillTestResult(node, { pending: true });
     const r = await testStream(url);
     if (btn) btn.disabled = false;
     if (r.url) state.tests.set(r.url.trim(), r);
-    fillTestResult(node, r);
+    fillTestResult(node, r, onUseUrl);
   }
 
   // ---------- Load / save ----------
@@ -618,26 +634,161 @@
 
   // ---------- Search ----------
 
-  async function search(q) {
-    q = q.trim();
-    const list = $('search-results');
-    if (q.length < 2) { toast('Enter at least 2 characters.', 'warn'); return; }
-    const btn = $('search-btn');
-    btn.disabled = true;
-    list.replaceChildren(el('li', null, el('span', { class: 'spinner' }), 'Searching…'));
+  const FILTER_STORE_KEY = 'zcast.admin.searchFilters';
+  const FILTER_SELECTS = { country: 'sf-country', language: 'sf-language', tag: 'sf-tag', codec: 'sf-codec' };
+  const search = { filters: null, loadingFilters: false, params: null, offset: 0, count: 0, hasMore: false, busy: false };
+
+  const capitalize = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+  function readFilters() {
+    return {
+      name: $('sf-name').value.trim(),
+      country: $('sf-country').value,
+      language: $('sf-language').value,
+      tag: $('sf-tag').value,
+      codec: $('sf-codec').value,
+      bitrateMin: $('sf-bitrate').value,
+      order: $('sf-order').value || 'votes',
+      httpOnly: $('sf-http').checked,
+    };
+  }
+
+  function storedFilters() {
     try {
-      const res = await api('GET', 'search?q=' + encodeURIComponent(q));
-      list.replaceChildren();
-      if (!res.ok) { list.append(el('li', { class: 'empty', text: errorText(res, 'Search failed') })); return; }
-      state.searchResults = res.data || [];
-      if (!state.searchResults.length) { list.append(el('li', { class: 'empty', text: 'No stations found.' })); return; }
-      for (const r of state.searchResults) list.append(searchRow(r));
+      const raw = localStorage.getItem(FILTER_STORE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function storeFilters(f) {
+    try { localStorage.setItem(FILTER_STORE_KEY, JSON.stringify(f)); } catch (e) { /* storage unavailable */ }
+  }
+
+  function setSelect(select, value) {
+    value = value == null ? '' : String(value);
+    if (value && ![...select.options].some((o) => o.value === value)) {
+      // Keep a remembered value usable even if the filter lists are not (yet) loaded.
+      select.append(el('option', { value, text: capitalize(value) }));
+    }
+    select.value = value;
+  }
+
+  function applyFilters(f) {
+    $('sf-name').value = f.name || '';
+    for (const [k, id] of Object.entries(FILTER_SELECTS)) setSelect($(id), f[k]);
+    setSelect($('sf-bitrate'), f.bitrateMin);
+    $('sf-order').value = ['votes', 'popular', 'name', 'bitrate'].includes(f.order) ? f.order : 'votes';
+    $('sf-http').checked = f.httpOnly !== false;
+  }
+
+  function fillFilterSelect(select, items, display) {
+    const current = select.value;
+    select.replaceChildren(el('option', { value: '', text: 'Any' }));
+    for (const item of items || []) {
+      const label = display(item.label || item.value);
+      select.append(el('option', { value: item.value, text: item.count != null ? `${label} (${item.count})` : label }));
+    }
+    setSelect(select, current);
+  }
+
+  async function loadFilters() {
+    if (search.filters || search.loadingFilters) return;
+    search.loadingFilters = true;
+    const status = $('filter-status');
+    status.replaceChildren(el('span', { class: 'spinner' }), 'Loading filters…');
+    try {
+      const res = await api('GET', 'search/filters');
+      if (!res.ok || !res.data) throw new Error(errorText(res, 'Could not load the filter lists'));
+      search.filters = res.data;
+      fillFilterSelect($('sf-country'), res.data.countries, (s) => s);
+      fillFilterSelect($('sf-language'), res.data.languages, capitalize);
+      fillFilterSelect($('sf-tag'), res.data.tags, capitalize);
+      fillFilterSelect($('sf-codec'), res.data.codecs, (s) => s);
+      status.replaceChildren();
+    } catch (e) {
+      status.replaceChildren(el('span', { class: 'bad', text: e.message + ' You can still search by name. ' }),
+        button('Retry', () => loadFilters()));
+    } finally {
+      search.loadingFilters = false;
+    }
+  }
+
+  function setSearchBusy(busy) {
+    search.busy = busy;
+    $('search-btn').disabled = busy;
+    $('search-more').disabled = busy;
+    $('search-reset').disabled = busy;
+  }
+
+  function updateSearchCount() {
+    $('search-count').textContent = search.params
+      ? `${search.count} station(s) shown${search.hasMore ? ' – more available' : ''}`
+      : '';
+    $('search-more').hidden = !search.hasMore;
+  }
+
+  async function runSearch() {
+    const f = readFilters();
+    const msg = $('search-msg');
+    msg.textContent = '';
+    if (f.name && f.name.length < 2) { msg.textContent = 'Enter at least 2 characters of the name.'; return; }
+    if (!f.name && !f.country && !f.language && !f.tag) {
+      msg.textContent = 'Enter a name (min. 2 characters) or choose a country, language or genre.';
+      return;
+    }
+    storeFilters(f);
+    const params = new URLSearchParams();
+    for (const k of ['name', 'country', 'language', 'tag', 'codec', 'bitrateMin']) if (f[k]) params.set(k, f[k]);
+    params.set('order', f.order);
+    params.set('httpOnly', f.httpOnly ? 'true' : 'false');
+    search.params = params;
+    search.offset = 0;
+    search.count = 0;
+    search.hasMore = false;
+    $('search-results').replaceChildren();
+    await fetchSearchPage();
+  }
+
+  async function fetchSearchPage() {
+    if (!search.params || search.busy) return;
+    const list = $('search-results');
+    const params = new URLSearchParams(search.params);
+    params.set('offset', String(search.offset));
+    setSearchBusy(true);
+    const loading = el('li', null, el('span', { class: 'spinner' }), 'Searching…');
+    list.append(loading);
+    try {
+      const res = await api('GET', 'search?' + params.toString());
+      loading.remove();
+      if (!res.ok) { list.append(el('li', { class: 'empty', text: errorText(res, 'Search failed') })); search.hasMore = false; return; }
+      const results = (res.data && res.data.results) || [];
+      for (const r of results) list.append(searchRow(r));
+      search.count += results.length;
+      search.offset = (res.data.offset || search.offset) + results.length;
+      search.hasMore = !!res.data.hasMore && results.length > 0;
+      if (!search.count) list.append(el('li', { class: 'empty', text: 'No stations found. Try fewer filters.' }));
       renderSearchTarget();
     } catch (e) {
-      list.replaceChildren(el('li', { class: 'empty', text: e.message }));
+      loading.remove();
+      list.append(el('li', { class: 'empty', text: e.message }));
     } finally {
-      btn.disabled = false;
+      setSearchBusy(false);
+      updateSearchCount();
     }
+  }
+
+  function resetSearch() {
+    applyFilters({ httpOnly: true, order: 'votes' });
+    storeFilters(readFilters());
+    search.params = null;
+    search.count = 0;
+    search.hasMore = false;
+    $('search-msg').textContent = '';
+    $('search-results').replaceChildren();
+    updateSearchCount();
   }
 
   function searchRow(r) {
@@ -645,17 +796,26 @@
     const codec = [r.codec, r.bitrate ? `${r.bitrate} kbps` : ''].filter(Boolean).join(' ');
     if (codec) meta.push(codec);
     if (r.country) meta.push(r.country);
+    if (r.language) meta.push(capitalize(r.language));
+    if (r.votes) meta.push(`${r.votes} votes`);
     if (r.tags) meta.push(r.tags);
     const result = el('div', { class: 'test-result' });
+    const urlNode = el('div', { class: 'meta url', text: r.url, title: r.url });
+    const useUrl = (u) => {
+      r.url = u;
+      urlNode.textContent = u;
+      urlNode.title = u;
+      result.replaceChildren(el('span', { class: 'ok', text: 'URL changed to http://. ' }), '“Add” will use it.');
+    };
     return el('li', null,
       el('div', { class: 'info' },
         el('div', { class: 'name', text: r.name || '(no name)' }),
         el('div', { class: 'meta', text: meta.join(' · ') }),
-        el('div', { class: 'meta url', text: r.url }),
+        urlNode,
         result),
       el('div', { class: 'row-buttons' },
-        button('Test', (e) => runTestInto(r.url || '', result, e.currentTarget)),
-        button('Add', () => addFromSearch(r), { class: 'search-add primary' })));
+        button('Test', (e) => runTestInto(r.url || '', result, e.currentTarget, useUrl)),
+        button('Add', () => addFromSearch(r), { class: 'search-add primary', disabled: !state.categories[state.sel] })));
   }
 
   function addFromSearch(r) {
@@ -705,7 +865,11 @@
     };
     $('st-add-name').addEventListener('input', addCheck);
     $('st-add-url').addEventListener('input', addCheck);
-    $('st-add-test').addEventListener('click', (e) => runTestInto($('st-add-url').value, $('st-add-test-result'), e.currentTarget));
+    $('st-add-test').addEventListener('click', (e) => runTestInto($('st-add-url').value, $('st-add-test-result'), e.currentTarget, (u) => {
+      $('st-add-url').value = u;
+      addCheck();
+      $('st-add-test-result').replaceChildren(el('span', { class: 'ok', text: 'URL replaced with the http:// version.' }));
+    }));
     $('st-add').addEventListener('submit', (e) => {
       e.preventDefault();
       const cat = state.categories[state.sel];
@@ -722,7 +886,11 @@
       $('st-add-name').focus();
     });
 
-    $('search-form').addEventListener('submit', (e) => { e.preventDefault(); search($('search-q').value); });
+    $('search-form').addEventListener('submit', (e) => { e.preventDefault(); runSearch(); });
+    $('search-more').addEventListener('click', fetchSearchPage);
+    $('search-reset').addEventListener('click', resetSearch);
+    $('search-panel').addEventListener('toggle', (e) => { if (e.target.open) loadFilters(); });
+    applyFilters(storedFilters());
 
     $('import-file').addEventListener('change', (e) => importFile(e.target.files && e.target.files[0]));
     $('backups-refresh').addEventListener('click', loadBackups);

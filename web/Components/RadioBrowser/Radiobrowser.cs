@@ -124,6 +124,75 @@ namespace Browser
         //    else:
         //        return None
 
+        /// <summary>
+        /// Filtered search for the admin page (Radio Browser advanced search). Returns one page of results
+        /// and whether more are available. Broken stations are hidden by the API (hidebroken).
+        /// </summary>
+        public (List<BrowserStation> Stations, bool HasMore) AdvancedSearch(StationSearchFilter filter)
+        {
+            var limit = Math.Clamp(filter.Limit, 1, 100);
+            var (order, reverse) = filter.Order switch
+            {
+                "popular" => ("clickcount", true),
+                "name" => ("name", false),
+                "bitrate" => ("bitrate", true),
+                _ => ("votes", true),
+            };
+            var query = new List<string>
+            {
+                "hidebroken=true",
+                "order=" + order,
+                "reverse=" + (reverse ? "true" : "false"),
+                "offset=" + Math.Max(0, filter.Offset),
+                "limit=" + (limit + 1), // one extra to detect "more available"
+            };
+            if (!string.IsNullOrWhiteSpace(filter.Name)) query.Add("name=" + Uri.EscapeDataString(filter.Name.Trim()));
+            if (!string.IsNullOrWhiteSpace(filter.CountryCode)) query.Add("countrycode=" + Uri.EscapeDataString(filter.CountryCode.Trim().ToUpperInvariant()));
+            if (!string.IsNullOrWhiteSpace(filter.Language)) query.Add("languageExact=true&language=" + Uri.EscapeDataString(filter.Language.Trim()));
+            if (!string.IsNullOrWhiteSpace(filter.Tag)) query.Add("tagExact=true&tag=" + Uri.EscapeDataString(filter.Tag.Trim()));
+            if (!string.IsNullOrWhiteSpace(filter.Codec)) query.Add("codec=" + Uri.EscapeDataString(filter.Codec.Trim()));
+            if (filter.BitrateMin > 0) query.Add("bitrateMin=" + filter.BitrateMin);
+            if (filter.HttpOnly) query.Add("is_https=false");
+
+            var stationsJson = Request("stations/search?" + string.Join("&", query));
+            var stations = stationsJson.Take(limit).Select(json => new BrowserStation(json)).ToList();
+            return (stations, stationsJson.Count > limit);
+        }
+
+        /// <summary>Values for the admin search filters, most used first (kind: countries, languages, tags, codecs).</summary>
+        public List<FilterOption> GetFilterOptions(string kind)
+        {
+            var (call, minimum) = kind switch
+            {
+                "countries" => ("countries?hidebroken=true", 1),
+                "languages" => ("languages?hidebroken=true&order=stationcount&reverse=true&limit=200", 5),
+                "tags" => ("tags?hidebroken=true&order=stationcount&reverse=true&limit=300", 20),
+                "codecs" => ("codecs?hidebroken=true", 20),
+                _ => throw new ArgumentException("Unknown filter kind", nameof(kind)),
+            };
+            var options = new List<FilterOption>();
+            foreach (var raw in Request(call))
+            {
+                var name = GetJsonAttr(raw, "name").Trim();
+                if (name.Length == 0 || !int.TryParse(GetJsonAttr(raw, "stationcount"), out var count) || count < minimum)
+                {
+                    continue;
+                }
+                if (kind == "codecs" && (name.Contains(',') || name.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase))) // skip "UNKNOWN" and audio+video combinations like "AAC,H.264"
+                {
+                    continue;
+                }
+                var value = kind == "countries" ? GetJsonAttr(raw, "iso_3166_1") : name;
+                if (value.Length > 0)
+                {
+                    options.Add(new FilterOption(value, name, count));
+                }
+            }
+            return kind == "countries"
+                ? options.OrderBy(o => o.Label, StringComparer.OrdinalIgnoreCase).ToList()
+                : options.OrderByDescending(o => o.Count).ToList();
+        }
+
         public List<BrowserStation> Search(string name, int limit = DEFAULT_STATION_LIMIT)
         {
             var stations = new List<BrowserStation>();

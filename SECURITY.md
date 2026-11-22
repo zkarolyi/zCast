@@ -43,4 +43,5 @@ zCast is designed to run **inside your home network** and must not be exposed to
 - Cross-site request protection: state-changing requests need the `X-Zcast-Admin: 1` header and a matching `Origin`.
 - Responses carry `Content-Security-Policy: default-src 'self'`, `nosniff`, `no-referrer` and `no-store`.
 - The data file is written by the unprivileged service user only (`/var/lib/zcast`, systemd `DynamicUser`).
-- "Test stream" makes the server request a URL entered by a logged-in admin (http/https only, 8 s timeout).
+- "Test stream" makes the server request a URL entered by a logged-in admin (http/https only, 8 s timeout; for
+  https:// also the http:// variant). Certificates are validated normally; TLS errors are only reported.
