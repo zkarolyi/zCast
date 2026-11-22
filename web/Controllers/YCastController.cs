@@ -355,10 +355,6 @@ namespace web.Controllers
         //    response.headers.set('Content-Type', 'image/jpeg')
         //    return response
 
-        private void CheckMyStationsFeature(string config)
-        {
-            myStationsEnabled = myStation.SetConfig(config);
-        }
         //def check_my_stations_feature(config):
         //    global my_stations_enabled
         //    my_stations_enabled = my_stations.set_config(config)

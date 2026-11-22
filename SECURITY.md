@@ -29,7 +29,18 @@ and the reporter is credited, unless you'd rather stay anonymous.
 
 zCast is designed to run **inside your home network** and must not be exposed to the internet:
 
-- The service listens on `127.0.0.1:8010` only; nginx forwards just the vTuner host names to it.
+- The service listens on `127.0.0.1` only (8010 AVR API, 8011 admin API); nginx is the only way in.
+- Both nginx sites only accept the networks in `/etc/nginx/zcast-allow.conf` (the LAN detected by `install.sh`),
+  even if port 80 is forwarded to the server for other services.
 - AVRs use plain HTTP, so the vTuner endpoints can't be protected with HTTPS or authentication.
-- Don't forward port 80 from your router to the zCast server.
 - The Swagger UI (`/swagger`) is reachable only on the server itself in the default deployment.
+
+### Admin page
+
+- Own nginx site on port 8090: allowlist + basic auth (`/etc/nginx/zcast-admin.htpasswd`, APR1 hash) + HTTPS with a
+  self-signed certificate. **Never forward port 8090 on the router.**
+- The admin API answers only on its own port (404 elsewhere, and `/admin` is blocked on the AVR site).
+- Cross-site request protection: state-changing requests need the `X-Zcast-Admin: 1` header and a matching `Origin`.
+- Responses carry `Content-Security-Policy: default-src 'self'`, `nosniff`, `no-referrer` and `no-store`.
+- The data file is written by the unprivileged service user only (`/var/lib/zcast`, systemd `DynamicUser`).
+- "Test stream" makes the server request a URL entered by a logged-in admin (http/https only, 8 s timeout).

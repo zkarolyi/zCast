@@ -11,7 +11,7 @@ if (Test-Path $tgz) { Remove-Item -Force $tgz }
 dotnet publish (Join-Path $root 'web\web.csproj') -c Release -r linux-arm64 --self-contained true -o (Join-Path $pkg 'app')
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
-Copy-Item (Join-Path $PSScriptRoot 'install.sh'), (Join-Path $PSScriptRoot 'zcast.service'), (Join-Path $PSScriptRoot 'nginx-zcast.conf') $pkg
+Copy-Item (Join-Path $PSScriptRoot 'install.sh'), (Join-Path $PSScriptRoot 'zcast.service'), (Join-Path $PSScriptRoot 'nginx-zcast.conf'), (Join-Path $PSScriptRoot 'nginx-zcast-admin.conf') $pkg
 
 tar -czf $tgz -C (Join-Path $root 'out') 'zcast-linux-arm64'
 if ($LASTEXITCODE -ne 0) { throw "tar failed" }

@@ -31,6 +31,8 @@ Please report security problems privately. See [SECURITY.md](SECURITY.md).
    curl "http://localhost:5001/setupapp/Yamaha/asp/BrowseXML/loginXML.asp?token=0"
    curl "http://localhost:5001/ycast"
    ```
+   The admin page runs on http://localhost:5002/admin/ (no password in development).
+4. Run the tests: `dotnet test`.
 
 ## Project layout
 
@@ -39,7 +41,9 @@ Please report security problems privately. See [SECURITY.md](SECURITY.md).
 | `web/Controllers/YCastController.cs` | All HTTP endpoints (vTuner / YCast routes) |
 | `web/Components/VTuner/` | vTuner XML page model |
 | `web/Components/RadioBrowser/` | Radio Browser API client |
-| `web/Components/MyStations/` | `stations.yml` reader |
+| `web/Components/MyStations/` | `stations.yml` storage (`StationStore`: load, validate, atomic save, backups) |
+| `web/Admin/` | Admin page: API (`AdminEndpoints.cs`) and UI (`index.html`, `app.js`, `app.css`, no build step) |
+| `tests/zCast.Tests/` | Unit tests (xUnit) |
 | `web/Helpers/` | Shared helpers, station icon conversion |
 | `deploy/` | Raspberry Pi package, installer, systemd and nginx configuration |
 
@@ -50,7 +54,7 @@ next to each ported function, which makes it easy to compare behavior.
 
 1. Fork the repository and create a branch from `main`.
 2. Keep changes focused: one fix or feature per pull request.
-3. Make sure `dotnet build` passes without new warnings.
+3. Make sure `dotnet build` and `dotnet test` pass without new warnings.
 4. Test against the receiver endpoints (at least `/setupapp/.../loginXML.asp` and `/ycast`), ideally on a real AVR.
 5. Add a line under **[Unreleased]** in [CHANGELOG.md](CHANGELOG.md).
 6. Describe what you changed and how you tested it in the pull request.
@@ -60,6 +64,8 @@ next to each ported function, which makes it easy to compare behavior.
 - Follow the existing code style. Files use CRLF line endings, except the Linux files in `deploy/`, which must use LF
   (enforced by `.gitattributes`).
 - Keep the vTuner XML output compatible: receivers are strict and can't be updated.
+- Admin UI: plain HTML/JS, no inline scripts or styles (the page is served with a strict Content-Security-Policy),
+  build DOM with `textContent` (no `innerHTML` with data), send `X-Zcast-Admin: 1` on every non-GET request.
 
 ## License
 

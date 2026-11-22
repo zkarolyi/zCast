@@ -24,10 +24,13 @@ jobs:
       - name: Build
         run: dotnet build web/web.csproj -c Release
 
+      - name: Test
+        run: dotnet test tests/zCast.Tests/zCast.Tests.csproj -c Release
+
       - name: Publish Raspberry Pi package (linux-arm64)
         run: |
           dotnet publish web/web.csproj -c Release -r linux-arm64 --self-contained true -o out/zcast-linux-arm64/app
-          cp deploy/install.sh deploy/zcast.service deploy/nginx-zcast.conf out/zcast-linux-arm64/
+          cp deploy/install.sh deploy/zcast.service deploy/nginx-zcast.conf deploy/nginx-zcast-admin.conf out/zcast-linux-arm64/
           chmod +x out/zcast-linux-arm64/install.sh out/zcast-linux-arm64/app/web
           tar -czf out/zcast-linux-arm64.tar.gz -C out zcast-linux-arm64
 

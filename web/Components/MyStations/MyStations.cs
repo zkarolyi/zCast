@@ -13,15 +13,14 @@ namespace My
         private readonly string url;
         private readonly string tag;
         private readonly string icon;
+        private readonly StationStore? store;
 
         public static string ID_PREFIX = "MY";
 
-        // Resolve next to the app binaries so it works regardless of the process working directory (systemd service, IIS, etc.).
-        private string myStationsFile = Path.Combine(AppContext.BaseDirectory, "stations.yml");
-
-        public MyStation(ILogger<MyStation> logger)
+        public MyStation(ILogger<MyStation> logger, StationStore store)
         {
             this.logger = logger;
+            this.store = store;
             this.id = string.Empty;
             this.name = string.Empty;
             this.url = string.Empty;
@@ -42,23 +41,6 @@ namespace My
         public VTuner.Station ToVtuner()
         {
             return new VTuner.Station(id, name, tag, url, icon, tag, string.Empty, string.Empty, 0, string.Empty);
-        }
-
-        public bool SetConfig(string file)
-        {
-            if (!string.IsNullOrEmpty(file))
-            {
-                myStationsFile = file;
-            }
-
-            if (GetStationsYaml() != null)
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
         }
 
         public MyStation? GetStationById(string uid)
@@ -82,24 +64,8 @@ namespace My
 
         public RadioCategories GetStationsYaml()
         {
-            try
-            {
-                using var reader = new StreamReader(myStationsFile);
-                var deserializer = new DeserializerBuilder().Build();
-
-                var myStations = deserializer.Deserialize<RadioCategories>(reader);
-                return myStations;
-            }
-            catch (FileNotFoundException)
-            {
-                logger.LogWarning("Station configuration '{config_file}' not found", myStationsFile);
-                return new RadioCategories();
-            }
-            catch (YamlDotNet.Core.YamlException e)
-            {
-                logger.LogWarning("Station configuration format error: {Message}", e.Message);
-                return new RadioCategories();
-            }
+            // Station entries created internally have no store; only the DI instance reads the file.
+            return store?.Load() ?? new RadioCategories();
         }
 
         public List<RadioDirectory> GetCategoryDirectories()
