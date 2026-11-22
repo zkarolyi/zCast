@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>zCast – My Stations</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>zCast <span class="muted">–</span> My Stations</h1>
+    <span id="dirty" class="badge" hidden>Unsaved changes</span>
+    <div class="actions">
+      <button type="button" id="btn-discard" disabled>Discard</button>
+      <button type="button" id="btn-save" class="primary" disabled>Save</button>
+    </div>
+  </header>
+
+  <div id="problems" class="problems" hidden role="alert"></div>
+
+  <main class="layout">
+    <aside class="panel categories">
+      <h2>Categories</h2>
+      <ul id="cat-list" class="cat-list"></ul>
+      <form id="cat-add" class="inline-form" autocomplete="off" novalidate>
+        <input id="cat-add-name" type="text" placeholder="New category" maxlength="200" aria-label="New category name">
+        <button type="submit">Add</button>
+        <div class="field-msg" id="cat-add-msg"></div>
+      </form>
+    </aside>
+
+    <section class="panel stations" id="stations-panel">
+      <div id="cat-head" class="cat-head"></div>
+      <ul id="station-list" class="station-list"></ul>
+      <form id="st-add" class="station-form" autocomplete="off" novalidate hidden>
+        <h3>Add station</h3>
+        <input id="st-add-name" type="text" placeholder="Station name" maxlength="200" aria-label="Station name">
+        <input id="st-add-url" type="url" placeholder="http://stream.example.com/live.mp3" maxlength="2000" aria-label="Stream URL">
+        <div class="row-buttons">
+          <button type="button" id="st-add-test">Test</button>
+          <button type="submit" class="primary">Add</button>
+        </div>
+        <div class="field-msg" id="st-add-msg"></div>
+        <div class="test-result" id="st-add-test-result"></div>
+      </form>
+    </section>
+  </main>
+
+  <section class="tools">
+    <details class="panel" id="search-panel">
+      <summary>Find stations (Radio Browser)</summary>
+      <form id="search-form" class="search-form" autocomplete="off" novalidate>
+        <div class="filter-grid">
+          <label class="wide">Name
+            <input id="sf-name" type="search" placeholder="Station name (min. 2 characters)">
+          </label>
+          <label>Country
+            <select id="sf-country"><option value="">Any</option></select>
+          </label>
+          <label>Language
+            <select id="sf-language"><option value="">Any</option></select>
+          </label>
+          <label>Genre
+            <select id="sf-tag"><option value="">Any</option></select>
+          </label>
+          <label>Codec
+            <select id="sf-codec"><option value="">Any</option></select>
+          </label>
+          <label>Min. bitrate
+            <select id="sf-bitrate">
+              <option value="">Any</option>
+              <option value="64">64 kbps</option>
+              <option value="96">96 kbps</option>
+              <option value="128">128 kbps</option>
+              <option value="192">192 kbps</option>
+              <option value="256">256 kbps</option>
+              <option value="320">320 kbps</option>
+            </select>
+          </label>
+          <label>Sort
+            <select id="sf-order">
+              <option value="votes">Most votes</option>
+              <option value="popular">Most played</option>
+              <option value="name">Name</option>
+              <option value="bitrate">Bitrate</option>
+            </select>
+          </label>
+        </div>
+        <label class="check"><input type="checkbox" id="sf-http" checked> Only http:// streams (recommended for older receivers)</label>
+        <div class="row-buttons">
+          <button type="submit" id="search-btn" class="primary">Search</button>
+          <button type="button" id="search-reset">Reset filters</button>
+        </div>
+        <div class="small muted" id="filter-status"></div>
+        <div class="field-msg" id="search-msg"></div>
+      </form>
+      <p class="muted small" id="search-target"></p>
+      <p class="small" id="search-count"></p>
+      <ul id="search-results" class="search-results"></ul>
+      <div class="more"><button type="button" id="search-more" hidden>Load more</button></div>
+    </details>
+
+    <details class="panel" id="file-panel">
+      <summary>Import / Export / Backups</summary>
+      <div class="file-actions">
+        <label class="button" for="import-file" id="import-label">Import file…</label>
+        <input type="file" id="import-file" accept=".yml,.yaml,.txt,text/plain" hidden>
+        <a class="button" id="export-link" href="api/export" download="stations.yml">Export stations.yml</a>
+        <button type="button" id="backups-refresh">Refresh backups</button>
+      </div>
+      <p class="muted small">Import loads the file into the editor as unsaved changes; nothing is written until you click Save.</p>
+      <h3>Backups</h3>
+      <ul id="backup-list" class="backup-list"></ul>
+    </details>
+  </section>
+
+  <footer class="footer">
+    <div>File: <code id="file-path">–</code></div>
+    <div class="muted">Changes are live on the receiver right after saving (re-open the menu or power-cycle the receiver if it still shows the old list).</div>
+  </footer>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>

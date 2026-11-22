@@ -15,6 +15,7 @@ or unreliable service. zCast answers those requests on your own network, so the 
 - **Radiobrowser**: browse stations by genre, country, language, or the most popular ones, using the free
   [Community Radio Browser](https://www.radio-browser.info) index
 - **My Stations**: your own categorized station list in a simple YAML file
+- **Admin page** to edit My Stations from a browser on the home network (search, stream test, backups)
 - **Search** from the receiver's remote
 - **Station logos**, resized and converted to JPEG for the receiver
 - Runs on Windows, Linux and **Raspberry Pi** (self-contained ARM64 build, no .NET install needed)
@@ -23,12 +24,14 @@ or unreliable service. zCast answers those requests on your own network, so the 
 ## How it works
 
 ```
-AVR ──DNS: radioyamaha.vtuner.com → your server──▶ nginx :80 ──▶ zCast ──▶ Radio Browser / streams
+AVR ─────DNS: radioyamaha.vtuner.com → server──▶ nginx :80   ──▶ zCast 127.0.0.1:8010 ──▶ Radio Browser / streams
+Browser (LAN) ───https://<server-ip>:8090/──────▶ nginx :8090 ──▶ zCast 127.0.0.1:8011 (admin page)
 ```
 
 1. Your local DNS answers the vTuner host name your receiver uses with the IP of the zCast server.
 2. A reverse proxy (nginx) on port 80 forwards those requests to zCast.
 3. zCast responds in the vTuner XML format, and the receiver plays the streams directly.
+4. The admin page has its own nginx site: home network only, password, HTTPS.
 
 ## Supported devices
 
@@ -61,8 +64,21 @@ cd zcast-linux-arm64
 chmod +x install.sh && ./install.sh
 ```
 
-This installs the app to `/opt/zcast`, a `zcast` systemd service (listening on `127.0.0.1:8010`) and an nginx site
-for the vTuner host names, then tests it. Running it again updates zCast and keeps your `/opt/zcast/stations.yml`.
+On the first run it asks for the admin page user and password. It installs:
+
+| What | Where |
+|---|---|
+| App | `/opt/zcast` |
+| Service `zcast` | `127.0.0.1:8010` (AVR), `127.0.0.1:8011` (admin) |
+| My Stations data | `/var/lib/zcast/stations.yml` (+ `backups/`) |
+| nginx AVR site | `/etc/nginx/sites-available/zcast` (port 80, vTuner host names) |
+| nginx admin site | `/etc/nginx/sites-available/zcast-admin` (port 8090, HTTPS) |
+| Allowed networks | `/etc/nginx/zcast-allow.conf` (auto-detected LAN) |
+| Admin password | `/etc/nginx/zcast-admin.htpasswd` |
+| Admin certificate | `/etc/nginx/zcast-admin/` (self-signed, 10 years) |
+
+Running it again updates zCast and keeps the data, allowlist, password and certificate.
+Options: `--set-password`, `--new-cert`; environment: `ZCAST_ALLOW="192.168.1.0/24"`, `ZCAST_ADMIN_PORT=8090`.
 
 **3. Redirect DNS.** Make `radioyamaha.vtuner.com` and `radioyamaha2.vtuner.com` resolve to the Pi's IP.
 Use whichever of these your network supports:
@@ -82,20 +98,29 @@ nslookup radioyamaha.vtuner.com
 
 ## Configuration: My Stations
 
-The active list is `/opt/zcast/stations.yml` on the server. It is read on every request, so no restart is needed.
-`web/stations.yml` in the repo is only the initial copy: `install.sh` keeps the server's file on updates.
+The active list is `/var/lib/zcast/stations.yml` on the server. It is read on every request, so no restart is needed.
+The folder is only accessible with `sudo`: the service runs as a systemd `DynamicUser`, whose data lives in
+`/var/lib/private/zcast` (root-only, `/var/lib/zcast` is a link to it).
+
+```bash
+sudo ls -la /var/lib/zcast/            # stations.yml + backups/
+sudo cat /var/lib/zcast/stations.yml
+```
+`web/stations.yml` in the repo is only the initial copy, used when the data file doesn't exist yet.
+
+**Edit in the browser** (recommended): see [Admin page](#admin-page).
 
 **Edit on the server:**
 
 ```bash
-sudo nano /opt/zcast/stations.yml
+sudo nano /var/lib/zcast/stations.yml
 ```
 
 **Or edit locally and copy:**
 
 ```bash
 scp web/stations.yml <user>@<pi-ip>:~
-ssh <user>@<pi-ip> "sudo cp ~/stations.yml /opt/zcast/stations.yml"
+ssh <user>@<pi-ip> "sudo cp ~/stations.yml /var/lib/zcast/stations.yml"
 ```
 
 **Format:**
@@ -123,20 +148,66 @@ journalctl -u zcast -n 20 | grep -i "station configuration"   # YAML errors (My 
 
 If the AVR still shows the old list, re-open the menu or power-cycle it (menus are cached).
 
+## Admin page
+
+`https://<server-ip>:8090/` from a device on the home network. Accept the self-signed certificate warning once,
+then log in with the user and password set by `install.sh`.
+
+- Categories and stations: add, edit, delete, reorder, move between categories
+- **Search** the Radio Browser index (~50,000 stations) by name, country, language, genre, codec and minimum bitrate,
+  sorted by votes, popularity, name or bitrate, 50 per page. "Only http:// streams" (default) skips HTTPS stations.
+  Add a station with one click (direct stream URL).
+- **Test** a stream URL (HTTP status, content type, playlist/web page warnings). For HTTPS URLs it also checks the
+  http:// version and offers **Use http:// URL**, and TLS errors show the reason (e.g. expired or untrusted certificate)
+- Import / export `stations.yml`; the last 10 versions are kept as backups and can be restored
+- Saving is atomic and conflict-safe (two open tabs can't overwrite each other)
+- Saving from the page rewrites the file: YAML comments are not kept (backups keep the previous version)
+
+**Access control** (all three apply):
+
+| Layer | Setting |
+|---|---|
+| Network | `/etc/nginx/zcast-allow.conf`, also applied to the AVR site |
+| Password | nginx basic auth, `/etc/nginx/zcast-admin.htpasswd` |
+| Encryption | HTTPS on port 8090 (self-signed) |
+
+```bash
+sudo nano /etc/nginx/zcast-allow.conf && sudo nginx -t && sudo systemctl reload nginx   # other network
+./install.sh --set-password                                                                # change password
+./install.sh --new-cert                                                                    # server IP changed
+```
+
+```nginx
+# /etc/nginx/zcast-allow.conf
+allow 192.168.1.0/24;
+allow 127.0.0.1;
+deny  all;
+```
+
+Never forward port 8090 on the router. zCast itself only listens on `127.0.0.1`; the admin API answers only on the
+admin port and rejects cross-site requests.
+
 ## Operation
 
 | Task | Command (on the Pi) |
 |---|---|
 | Service logs | `journalctl -u zcast -f` |
 | Requests from the receiver | `sudo tail -f /var/log/nginx/zcast.access.log` |
+| Admin page requests | `sudo tail -f /var/log/nginx/zcast-admin.access.log` |
+| My Stations backups | `sudo ls /var/lib/zcast/backups` |
 | Restart | `sudo systemctl restart zcast` |
 | Test | `curl -H "Host: radioyamaha.vtuner.com" http://127.0.0.1/ycast` |
 
 ## Development
 
 ```bash
-dotnet run --project web        # http://localhost:5001/swagger
+dotnet run --project web        # AVR API: http://localhost:5001/swagger   admin page: http://localhost:5002/admin/
+dotnet test                     # unit tests
 ```
+
+Configuration (environment variables): `Admin__Port` (admin port; unset = admin page disabled),
+`Stations__File` (path of `stations.yml`; default: next to the binaries).
+In development the admin page has no password (no nginx in front).
 
 Useful endpoints: `/ycast` (main menu), `/ycast/radiobrowser`, `/ycast/my_stations`,
 `/ycast/search?search=jazz`, `/setupapp/Yamaha/asp/BrowseXML/loginXML.asp?token=0` (AVR login).

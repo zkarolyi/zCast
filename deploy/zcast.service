@@ -7,13 +7,17 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/zcast
 ExecStart=/opt/zcast/web
-# Only reachable through nginx, which owns port 80.
-Environment=ASPNETCORE_URLS=http://127.0.0.1:8010
+# Only reachable through nginx: 8010 = AVR API (port 80 site), 8011 = admin page (port 8090 site).
+Environment="ASPNETCORE_URLS=http://127.0.0.1:8010;http://127.0.0.1:8011"
+Environment=Admin__Port=8011
 Environment=ASPNETCORE_ENVIRONMENT=Production
+# "My Stations" live in the writable state directory (/var/lib/zcast); seeded from /opt/zcast/stations.yml.
+Environment=Stations__File=/var/lib/zcast/stations.yml
+StateDirectory=zcast
 # Workstation GC keeps memory low next to other services.
 Environment=DOTNET_gcServer=0
 Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
-# Run as an unprivileged throwaway user; the app only needs to read /opt/zcast.
+# Run as an unprivileged throwaway user; it can only write its state directory.
 DynamicUser=yes
 ProtectSystem=strict
 ProtectHome=yes

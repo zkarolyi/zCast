@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Admin page for My Stations (`https://<server-ip>:8090/`): edit categories and stations, Radio Browser search,
+  stream test, import/export, backups with restore
+- Radio Browser search with filters (country, language, genre, codec, minimum bitrate, http:// only), sorting and
+  paging; filter lists cached for 6 hours
+- Stream test shows the real TLS error reason and suggests a working http:// URL for HTTPS streams
+- Admin access control: own nginx site with LAN allowlist, basic auth and self-signed HTTPS; admin API only on its
+  own port, cross-site request protection, security headers
+- `install.sh`: LAN allowlist detection (`ZCAST_ALLOW`), admin password (`--set-password`), certificate (`--new-cert`),
+  admin port (`ZCAST_ADMIN_PORT`)
+- Unit tests for the station storage, run in CI
+
+### Changed
+- My Stations data moved to `/var/lib/zcast/stations.yml` (writable state directory); an existing
+  `/opt/zcast/stations.yml` is migrated automatically. Saves are atomic and keep the last 10 versions.
+- The AVR site (port 80) only accepts the home network
+- Configuration: `Admin__Port`, `Stations__File`
+
 ## [1.0.0] - 2026-11-21
 
 First public release. A C# / .NET port of [YCast](https://github.com/milaq/YCast) 1.1.0.

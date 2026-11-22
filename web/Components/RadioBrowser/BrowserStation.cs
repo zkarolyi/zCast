@@ -7,6 +7,8 @@ namespace Browser
         public string Id { get; private set; } = string.Empty;
         public string Name { get; private set; } = string.Empty;
         public string Url { get; set; } = string.Empty;
+        /// <summary>Direct stream URL resolved by Radio Browser (playlists already followed).</summary>
+        public string UrlResolved { get; private set; } = string.Empty;
         public string Icon { get; private set; } = string.Empty;
         public List<string> Tags { get; private set; } = new List<string>();
         public string CountryCode { get; private set; } = string.Empty;
@@ -21,6 +23,7 @@ namespace Browser
             Id = Generic.GenerateStationidWithPrefix(RadioBrowser.GetJsonAttr(stationJson, "stationuuid"), RadioBrowser.ID_PREFIX);
             Name = RadioBrowser.GetJsonAttr(stationJson, "name");
             Url = RadioBrowser.GetJsonAttr(stationJson, "url");
+            UrlResolved = RadioBrowser.GetJsonAttr(stationJson, "url_resolved");
             Icon = RadioBrowser.GetJsonAttr(stationJson, "favicon");
             Tags = RadioBrowser.GetJsonAttr(stationJson, "tags").Split(",").ToList();
             CountryCode = RadioBrowser.GetJsonAttr(stationJson, "countrycode");
