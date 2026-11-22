@@ -99,6 +99,13 @@ nslookup radioyamaha.vtuner.com
 ## Configuration: My Stations
 
 The active list is `/var/lib/zcast/stations.yml` on the server. It is read on every request, so no restart is needed.
+The folder is only accessible with `sudo`: the service runs as a systemd `DynamicUser`, whose data lives in
+`/var/lib/private/zcast` (root-only, `/var/lib/zcast` is a link to it).
+
+```bash
+sudo ls -la /var/lib/zcast/            # stations.yml + backups/
+sudo cat /var/lib/zcast/stations.yml
+```
 `web/stations.yml` in the repo is only the initial copy, used when the data file doesn't exist yet.
 
 **Edit in the browser** (recommended): see [Admin page](#admin-page).
