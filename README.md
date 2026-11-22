@@ -82,17 +82,46 @@ nslookup radioyamaha.vtuner.com
 
 ## Configuration: My Stations
 
-Edit `/opt/zcast/stations.yml`. The file is read on every request, so no restart is needed:
+The active list is `/opt/zcast/stations.yml` on the server. It is read on every request, so no restart is needed.
+`web/stations.yml` in the repo is only the initial copy: `install.sh` keeps the server's file on updates.
+
+**Edit on the server:**
+
+```bash
+sudo nano /opt/zcast/stations.yml
+```
+
+**Or edit locally and copy:**
+
+```bash
+scp web/stations.yml <user>@<pi-ip>:~
+ssh <user>@<pi-ip> "sudo cp ~/stations.yml /opt/zcast/stations.yml"
+```
+
+**Format:**
 
 ```yaml
-Categories:
+Categories:            # each category is a folder under "My Stations"
   Chillout:
     - Name: SomaFM Drone Zone
       Url: http://ice1.somafm.com/dronezone-256-mp3
-  News:
-    - Name: BBC World Service
-      Url: http://stream.live.vc.bbcmedia.co.uk/bbc_world_service
+  Hungarian:
+    - Name: "Petőfi Rádió"   # quote names with ':', '#' or non-ASCII characters
+      Url: http://icast.connectmedia.hu/4738/mr2.mp3
 ```
+
+- Indent with spaces, not tabs.
+- `Url` must be a direct stream (MP3/AAC/Icecast/Shoutcast), not a web page. Prefer `http`: older AVRs often can't play `https`.
+- The station ID is derived from `Name` + `Url`. Changing either invalidates presets saved on the AVR.
+
+**Verify:**
+
+```bash
+curl -s -H "Host: radioyamaha.vtuner.com" http://127.0.0.1/ycast/my_stations | grep -o '<Title>[^<]*'
+journalctl -u zcast -n 20 | grep -i "station configuration"   # YAML errors (My Stations shows "No entries found")
+```
+
+If the AVR still shows the old list, re-open the menu or power-cycle it (menus are cached).
 
 ## Operation
 
